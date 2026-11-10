@@ -47,7 +47,8 @@ Open the serial monitor at **115200 baud** and type commands (one per line):
 | `read`     | Read a card into the in-RAM buffer and print a hex dump. |
 | `dump`     | Print the current buffer (`T` marks sector-trailer blocks). |
 | `write`    | Write the buffer's **data blocks** onto a target card, with read-back verify. |
-| `writeuid` | Attempt to write the UID onto the target card — **magic cards only** (see below). |
+| `writeuid` | Write the last-read card's UID onto the target card — **magic cards only** (see below). |
+| `setuid <hex>` | Write a **custom UID** onto a magic card, e.g. `setuid 04 A1 B2 C3`. 4 or 7 bytes; separators optional. Reads the UID back to verify. |
 | `clear`    | Discard the buffer. |
 
 Typical flow: put the source card on the reader and run `read`, then swap in a
@@ -69,6 +70,52 @@ A MIFARE Classic card has two kinds of content:
 
 `write` deliberately **skips block 0 and the sector trailers** (which hold keys
 and access bits) to avoid bricking a card.
+
+## Writing a custom UID onto a magic card
+
+Many simple access systems identify a card purely by its **UID** (serial
+number), which isn't secret. To put a known UID onto a blank keyfob/sticker for
+your own authorized use:
+
+1. Read the source UID (e.g. with the NXP TagInfo phone app) — note whether it's
+   **4 or 7 bytes**.
+2. Get a **"magic" / UID-changeable** tag. Both flavors are supported — **Gen1a**
+   ("backdoor") and **Gen2 / CUID** ("direct write"); the tool tries Gen1a first
+   and falls back to Gen2. A 7-byte UID needs a **7-byte-capable** magic card —
+   most cheap magic cards are 4-byte only and can't hold a 7-byte UID.
+3. Present the magic card and run, e.g.: `setuid 04 A1 B2 C3 D4 E5 F6`
+4. The command writes the UID and then re-reads the card to confirm what it now
+   broadcasts (`MATCH` means success).
+
+> ⚠️ **Encrypted cards can't be cloned.** Cards like **MIFARE DESFire** keep
+> their data behind AES/3DES keys you don't hold, and authenticate with a live
+> challenge-response — there is no static ciphertext to copy. Only the **UID**
+> (not secret) can be duplicated, and only onto a magic card whose UID length
+> matches. The RC522 may also fail to even detect a DESFire if its antenna is
+> weak. Note too that the 7-byte UID path is best-effort: the library lays out
+> block 0 in the 4-byte scheme, so it only yields a valid UID on a card that
+> genuinely supports 7-byte writable UIDs — always check the read-back.
+
+## Card memory & limitations
+
+A MIFARE Classic 1K card is `16 sectors × 4 blocks × 16 bytes = 1024 bytes`.
+Not all of it is free for your data:
+
+- **Block 0** holds the UID / manufacturer data (read-only on genuine cards).
+- The **last block of every sector** is a trailer (keys + access bits) — don't
+  store data there.
+- That leaves **~752 bytes** of usable read/write storage.
+
+Rough endurance for genuine NXP silicon: **~10 year** data retention and
+**~100k writes** per block (reads don't wear it). Kit/clone cards may not meet
+these specs, and in practice a snapped antenna coil usually kills a card long
+before the memory does.
+
+> ⚠️ **Security note.** MIFARE Classic's CRYPTO1 cipher is broken — sector keys
+> can be recovered in seconds with common tools. **Treat anything on one of
+> these cards as publicly readable.** Don't rely on the card to protect secrets;
+> if you must store sensitive data, encrypt it yourself first and store only the
+> ciphertext.
 
 ## Notes & scope
 
